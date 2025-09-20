@@ -45,6 +45,21 @@ def build_name(row):
 # -----------------------
 df = load_default().copy()
 
+# Optional CSV Upload (replaces the bundled dataset for this session)
+with st.expander("➕ Upload a different CSV (optional)", expanded=False):
+    up = st.file_uploader("Upload .csv", type=["csv"], help="Drop a CSV to analyze it instead of the bundled data.")
+    c1, c2 = st.columns([1,1])
+    if up is not None:
+        try:
+            df_uploaded = pd.read_csv(up)
+            st.success(f"Loaded {len(df_uploaded):,} rows from uploaded file.")
+            df = df_uploaded.copy()
+        except Exception as e:
+            st.error(f"Could not read CSV: {e}")
+    if st.button("Reset to bundled dataset", use_container_width=True):
+        df = load_default().copy()
+        st.experimental_rerun()
+
 # Column mapping
 COL_TIME = next((c for c in df.columns if c.lower() == "time" or "date" in c.lower()), None)
 COL_CREATED = next((c for c in df.columns if c.lower().strip() == "created by user"), None) or \
@@ -168,7 +183,7 @@ if sel_mkt != "All":
 if q:
     ql = q.lower().strip()
     mask = pd.Series(False, index=filtered.index)
-    for c in SEARCH_COLS:
+    for c in ["_Name","Email","Phone Number","Company","Location","Title"]:
         mask |= filtered[c].astype(str).str.lower().str.contains(ql, na=False)
     filtered = filtered[mask]
 
@@ -258,3 +273,4 @@ end = start + PAGE_SIZE
 st.dataframe(display.iloc[start:end].reset_index(drop=True), use_container_width=True, hide_index=True)
 
 st.caption(f"Showing {start+1} to {min(end, len(display))} of {len(display)} results")
+
