@@ -10,9 +10,33 @@ st.set_page_config(page_title="Contacts Dashboard", layout="wide")
 # -----------------------
 # Helpers
 # -----------------------
+
 @st.cache_data(show_spinner=False)
 def load_default() -> pd.DataFrame:
-    return pd.read_csv("data/admin_contacts.csv")
+    """
+    Try to load a bundled CSV. If not found (e.g., on Streamlit Cloud without data/),
+    fall back to searching for any CSV in the repo. If none exist, return an empty DataFrame.
+    """
+    import glob, os
+    candidates = [
+        "data/admin_contacts.csv",
+        "data/contacts.csv",
+        "admin_contacts.csv",
+        "contacts.csv",
+    ]
+    for c in candidates:
+        if Path(c).exists():
+            return pd.read_csv(c)
+    # Fallback: any CSV in repo
+    any_csvs = glob.glob("**/*.csv", recursive=True)
+    for c in any_csvs:
+        try:
+            return pd.read_csv(c)
+        except Exception:
+            continue
+    # Nothing found
+    return pd.DataFrame()
+
 
 def coerce_datetime(s: pd.Series):
     try:
@@ -45,6 +69,19 @@ def build_name(row):
 # -----------------------
 df = load_default().copy()
 
+if df.empty:
+    st.warning("No bundled CSV found. Upload a .csv to get started.")
+    up0 = st.file_uploader("Upload .csv", type=["csv"], key="bootstrap_uploader")
+    if up0 is not None:
+        try:
+            df = pd.read_csv(up0).copy()
+        except Exception as e:
+            st.error(f"Could not read CSV: {e}")
+            st.stop()
+    if df.empty:
+        st.stop()
+
+
 # Optional CSV Upload (replaces the bundled dataset for this session)
 with st.expander("➕ Upload a different CSV (optional)", expanded=False):
     up = st.file_uploader("Upload .csv", type=["csv"], help="Drop a CSV to analyze it instead of the bundled data.")
@@ -58,6 +95,19 @@ with st.expander("➕ Upload a different CSV (optional)", expanded=False):
             st.error(f"Could not read CSV: {e}")
     if st.button("Reset to bundled dataset", use_container_width=True):
         df = load_default().copy()
+
+if df.empty:
+    st.warning("No bundled CSV found. Upload a .csv to get started.")
+    up0 = st.file_uploader("Upload .csv", type=["csv"], key="bootstrap_uploader")
+    if up0 is not None:
+        try:
+            df = pd.read_csv(up0).copy()
+        except Exception as e:
+            st.error(f"Could not read CSV: {e}")
+            st.stop()
+    if df.empty:
+        st.stop()
+
         st.experimental_rerun()
 
 # Column mapping
@@ -273,4 +323,3 @@ end = start + PAGE_SIZE
 st.dataframe(display.iloc[start:end].reset_index(drop=True), use_container_width=True, hide_index=True)
 
 st.caption(f"Showing {start+1} to {min(end, len(display))} of {len(display)} results")
-
