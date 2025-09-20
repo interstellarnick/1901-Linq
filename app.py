@@ -157,13 +157,16 @@ users = ["All Users"] + sorted(df["_Created"].fillna("Unknown").unique().tolist(
 time_options = ["Last 7 days","Last 30 days","Last 90 days","This month","Last month","All time","Custom range"]
 marketing_opts = ["All","Accepted","Declined","Unknown"]
 
-c1, c2, c3, _ = st.columns([1.3,1.3,1,0.8])
+c1, c2, c3, c4 = st.columns([1.2,1.2,1,1])
 with c1:
     sel_user = st.selectbox("Created By", options=users, index=0)
 with c2:
     sel_time = st.selectbox("Time Range", options=time_options, index=5)
 with c3:
     sel_mkt = st.selectbox("Marketing", options=marketing_opts, index=0)
+with c4:
+    period_anchor = st.selectbox("Period Anchor", options=["Today (server time)", "Latest date in data"], index=0,
+                                 help="Controls how preset ranges (Last 7/30/90 days, This/Last month) are computed.")
 st.caption("Tip: The charts and table reflect your filters. Choose **All time** to include every row.")
 
 # Custom range picker rendered only if chosen
@@ -181,21 +184,24 @@ if sel_time == "Custom range":
 filtered = df.copy()
 
 # Time filter
-today = date.today()
+if period_anchor == "Latest date in data" and not df["_Date"].dropna().empty:
+    anchor_date = max(df["_Date"].dropna())
+else:
+    anchor_date = date.today()
 if sel_time == "Last 7 days":
-    start = today - timedelta(days=7)
+    start = anchor_date - timedelta(days=7)
     filtered = filtered[filtered["_Date"] >= start]
 elif sel_time == "Last 30 days":
-    start = today - timedelta(days=30)
+    start = anchor_date - timedelta(days=30)
     filtered = filtered[filtered["_Date"] >= start]
 elif sel_time == "Last 90 days":
-    start = today - timedelta(days=90)
+    start = anchor_date - timedelta(days=90)
     filtered = filtered[filtered["_Date"] >= start]
 elif sel_time == "This month":
-    start = date(today.year, today.month, 1)
+    start = date(anchor_date.year, anchor_date.month, 1)
     filtered = filtered[filtered["_Date"] >= start]
 elif sel_time == "Last month":
-    first_this = date(today.year, today.month, 1)
+    first_this = date(anchor_date.year, anchor_date.month, 1)
     last_month_end = first_this - timedelta(days=1)
     start = date(last_month_end.year, last_month_end.month, 1)
     filtered = filtered[(filtered["_Date"] >= start) & (filtered["_Date"] <= last_month_end)]
@@ -238,6 +244,7 @@ with k4:
     st.markdown(f'<div class="kpi-card"><div class="kpi-label">Active Users</div><div class="kpi-value">{active_users:,}</div></div>', unsafe_allow_html=True)
 
 st.write("")
+st.caption(f"Using **{period_anchor}** as {anchor_date:%b %d, %Y}.")
 
 # -----------------------
 # Charts row
