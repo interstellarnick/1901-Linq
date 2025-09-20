@@ -268,13 +268,13 @@ with k4:
 st.write("")
 st.caption(f"Using **{period_anchor}** as {anchor_date:%b %d, %Y}.")
 
+
 # -----------------------
 # Charts row
 # -----------------------
 c_left, c_right = st.columns(2)
 
-
-# Pie: Contacts by User
+# Pie: Contacts by User (with counts in labels)
 with c_left:
     counts = filtered["_Created"].fillna("Unknown").astype(str).value_counts().reset_index()
     counts.columns = ["Created By User", "Count"]
@@ -286,18 +286,17 @@ with c_left:
         hole=0.35,
         title="Contacts by User",
     )
-    # Show values and percent on the slices; legend uses the Label with counts
     fig_pie.update_traces(textinfo="label+value+percent", hovertemplate="%{label}<br>Count: %{value} (%{percent})<extra></extra>")
+    fig_pie.update_layout(height=CHART_HEIGHT)
     st.plotly_chart(fig_pie, use_container_width=True)
 
-
-# Bar: Contacts over Time
+# Bar: Contacts over Time (by date of record)
 with c_right:
     by_day = filtered.dropna(subset=["_Date"]).groupby("_Date").size().reset_index(name="Contacts Added")
     by_day = by_day.sort_values("_Date")
     fig_bar = px.bar(by_day, x="_Date", y="Contacts Added", title="Contacts Over Time")
-fig_bar.update_layout(height=CHART_HEIGHT)
-st.plotly_chart(fig_bar, use_container_width=True)
+    fig_bar.update_layout(height=CHART_HEIGHT, xaxis_title="Date", yaxis_title="Count")
+    st.plotly_chart(fig_bar, use_container_width=True)
 
 # -----------------------
 # Table (scrollable) + export
