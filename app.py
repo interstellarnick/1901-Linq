@@ -144,6 +144,25 @@ st.markdown(
     """, unsafe_allow_html=True
 )
 
+st.markdown(
+    """
+    <style>
+    /* Responsive spacing & font sizes */
+    @media (max-width: 992px) {
+      .kpi-value { font-size: 18px !important; }
+      .kpi-label { font-size: 11px !important; }
+    }
+    @media (max-width: 600px) {
+      .kpi-value { font-size: 16px !important; }
+      .kpi-label { font-size: 10px !important; }
+      .topbar .title { font-size: 18px !important; }
+    }
+    /* Make Streamlit containers a touch tighter on mobile */
+    section.main > div { padding-top: 0.5rem; }
+    </style>
+    """, unsafe_allow_html=True
+)
+
 colA, colB = st.columns([3,1])
 with colA:
     st.markdown('<div class="topbar"><div class="title">Contacts Dashboard</div></div>', unsafe_allow_html=True)
@@ -225,6 +244,9 @@ if q:
         mask |= filtered[c].astype(str).str.lower().str.contains(ql, na=False)
     filtered = filtered[mask]
 
+
+CHART_HEIGHT = 360
+
 # -----------------------
 # KPI row
 # -----------------------
@@ -274,51 +296,12 @@ with c_right:
     by_day = filtered.dropna(subset=["_Date"]).groupby("_Date").size().reset_index(name="Contacts Added")
     by_day = by_day.sort_values("_Date")
     fig_bar = px.bar(by_day, x="_Date", y="Contacts Added", title="Contacts Over Time")
-    st.plotly_chart(fig_bar, use_container_width=True)
+fig_bar.update_layout(height=CHART_HEIGHT)
+st.plotly_chart(fig_bar, use_container_width=True)
 
 # -----------------------
-# Table with pagination + export
-# -----------------------
+# Table (scrollable) + export
 st.markdown("#### Contact Records")
-
-display = filtered.copy()
-display["Date"] = pd.to_datetime(display["_Date"], errors="coerce").dt.strftime("%b %d, %Y")
-display["Created By"] = display["_Created"]
-
-def badge_txt(v):
-    if v == "Accepted":
-        return "Accepted"
-    if v == "Declined":
-        return "Declined"
-    return "Unknown"
-
-display["Marketing"] = display["_Marketing"].apply(badge_txt)
-
-table_cols = ["_Name","Phone Number","Email","Created By","Date","Marketing"]
-display = display[table_cols].rename(columns={"_Name":"Name"})
-
-# Pagination
-PAGE_SIZE = 10
-total_pages = max(1, int(np.ceil(len(display) / PAGE_SIZE)))
-page = int(st.session_state.get("page", 1))
-page = max(1, min(page, total_pages))  # clamp to valid range after filters change
-prev_col, pages_col, next_col, export_col = st.columns([0.6, 2, 0.6, 1])
-with prev_col:
-    if st.button("◀ Previous", use_container_width=True, disabled=(page<=1)):
-        page = max(1, page-1)
-with pages_col:
-    page = st.number_input("Page", min_value=1, max_value=total_pages, value=max(1, min(page, total_pages)), step=1, label_visibility="collapsed")
-with next_col:
-    if st.button("Next ▶", use_container_width=True, disabled=(page>=total_pages)):
-        page = min(total_pages, page+1)
-with export_col:
-    csv = filtered.to_csv(index=False).encode("utf-8")
-    st.download_button("Export CSV", csv, file_name="contacts_filtered.csv", mime="text/csv", use_container_width=True)
-
-st.session_state["page"] = int(page)
-
-start = (page-1)*PAGE_SIZE
-end = start + PAGE_SIZE
-st.dataframe(display.iloc[start:end].reset_index(drop=True), use_container_width=True, hide_index=True)
-
-st.caption(f"Showing {start+1} to {min(end, len(display))} of {len(display)} results")
+csv = filtered.to_csv(index=False).encode("utf-8")
+st.download_button("Export CSV", csv, file_name="contacts_filtered.csv", mime="text/csv")
+st.dataframe(display.reset_index(drop=True), use_container_width=True, hide_index=True, height=520)
