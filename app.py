@@ -293,14 +293,14 @@ display = display[table_cols].rename(columns={"_Name":"Name"})
 # Pagination
 PAGE_SIZE = 10
 total_pages = max(1, int(np.ceil(len(display) / PAGE_SIZE)))
-page = st.session_state.get("page", 1)
-
+page = int(st.session_state.get("page", 1))
+page = max(1, min(page, total_pages))  # clamp to valid range after filters change
 prev_col, pages_col, next_col, export_col = st.columns([0.6, 2, 0.6, 1])
 with prev_col:
     if st.button("◀ Previous", use_container_width=True, disabled=(page<=1)):
         page = max(1, page-1)
 with pages_col:
-    page = st.number_input("Page", min_value=1, max_value=total_pages, value=page, step=1, label_visibility="collapsed")
+    page = st.number_input("Page", min_value=1, max_value=total_pages, value=max(1, min(page, total_pages)), step=1, label_visibility="collapsed")
 with next_col:
     if st.button("Next ▶", use_container_width=True, disabled=(page>=total_pages)):
         page = min(total_pages, page+1)
