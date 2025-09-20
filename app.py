@@ -302,6 +302,21 @@ st.plotly_chart(fig_bar, use_container_width=True)
 # -----------------------
 # Table (scrollable) + export
 st.markdown("#### Contact Records")
+
+# Build display DataFrame
+display = filtered.copy()
+display["Date"] = pd.to_datetime(display["_Date"], errors="coerce").dt.strftime("%b %d, %Y")
+display["Created By"] = display["_Created"]
+def _badge(v):
+    return "Accepted" if v == "Accepted" else ("Declined" if v == "Declined" else "Unknown")
+display["Marketing"] = display["_Marketing"].apply(_badge)
+table_cols = ["_Name","Phone Number","Email","Created By","Date","Marketing"]
+for _col in ["_Name","Phone Number","Email","Created By","Date","Marketing"]:
+    if _col not in display.columns:
+        display[_col] = ""
+display = display[table_cols].rename(columns={"_Name":"Name"})
+
+# Export + table
 csv = filtered.to_csv(index=False).encode("utf-8")
 st.download_button("Export CSV", csv, file_name="contacts_filtered.csv", mime="text/csv")
 st.dataframe(display.reset_index(drop=True), use_container_width=True, hide_index=True, height=520)
