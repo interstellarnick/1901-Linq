@@ -161,9 +161,10 @@ c1, c2, c3, _ = st.columns([1.3,1.3,1,0.8])
 with c1:
     sel_user = st.selectbox("Created By", options=users, index=0)
 with c2:
-    sel_time = st.selectbox("Time Range", options=time_options, index=1)
+    sel_time = st.selectbox("Time Range", options=time_options, index=5)
 with c3:
     sel_mkt = st.selectbox("Marketing", options=marketing_opts, index=0)
+st.caption("Tip: The charts and table reflect your filters. Choose **All time** to include every row.")
 
 # Custom range picker rendered only if chosen
 custom_start, custom_end = None, None
@@ -243,12 +244,23 @@ st.write("")
 # -----------------------
 c_left, c_right = st.columns(2)
 
+
 # Pie: Contacts by User
 with c_left:
     counts = filtered["_Created"].fillna("Unknown").astype(str).value_counts().reset_index()
     counts.columns = ["Created By User", "Count"]
-    fig_pie = px.pie(counts, values="Count", names="Created By User", hole=0.35, title="Contacts by User")
+    counts["Label"] = counts["Created By User"] + " (" + counts["Count"].astype(str) + ")"
+    fig_pie = px.pie(
+        counts,
+        values="Count",
+        names="Label",
+        hole=0.35,
+        title="Contacts by User",
+    )
+    # Show values and percent on the slices; legend uses the Label with counts
+    fig_pie.update_traces(textinfo="label+value+percent", hovertemplate="%{label}<br>Count: %{value} (%{percent})<extra></extra>")
     st.plotly_chart(fig_pie, use_container_width=True)
+
 
 # Bar: Contacts over Time
 with c_right:
