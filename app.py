@@ -111,12 +111,7 @@ def _count_active_users(df: pd.DataFrame) -> int:
         return int((vals.isin(["active", "true", "yes", "y", "1"])).sum())
     return 0
 
-def render_kpi_cards(df: pd.DataFrame):
-    total = int(len(df))
-    accepted, declined = _count_marketing(df)
-    active = _count_active_users(df)
-    unique_ct = _count_unique_contacts(df)
-    dup_ct = max(total - unique_ct, 0)
+
 
     def card(label, value):
         st.markdown(
@@ -128,8 +123,6 @@ def render_kpi_cards(df: pd.DataFrame):
             """,
             unsafe_allow_html=True
         )
-
-    st.markdown("### Overview")
 
     # Row 1: Total Contacts, Marketing accepted, marketing declined
     c1,c2,c3 = st.columns(3)
@@ -155,7 +148,7 @@ def _find_col(df, candidates):
     return None
 
 def style_duplicates(df: pd.DataFrame) -> "pd.io.formats.style.Styler":
-    # Identify likely name and email columns
+    # Identify likely columns
     name_col = None
     for c in df.columns:
         cl = str(c).strip().lower()
@@ -163,26 +156,34 @@ def style_duplicates(df: pd.DataFrame) -> "pd.io.formats.style.Styler":
             name_col = c
             break
     email_col = _find_col(df, {"email", "email address", "e-mail"})
-    # Prepare masks
-    masks = {col: pd.Series(False, index=df.index) for col in df.columns}
-    if name_col is not None:
-        norm = df[name_col].astype(str).str.strip().str.lower().replace({"": np.nan, "nan": np.nan})
-        dup_mask = norm.duplicated(keep=False) & norm.notna()
-        masks[name_col] = dup_mask
-    if email_col is not None:
-        norm = df[email_col].astype(str).str.strip().str.lower().replace({"": np.nan, "nan": np.nan})
-        dup_mask = norm.duplicated(keep=False) & norm.notna()
-        masks[email_col] = dup_mask
+    phone_col = _find_col(df, {"phone", "phone number", "mobile", "phone #", "telephone", "tel"})
 
-    def highlight(cell_vals):
-        # cell_vals is a Series for a column; we use precomputed mask
-        col = cell_vals.name
-        m = masks.get(col, pd.Series(False, index=cell_vals.index))
+    # Precompute masks (default False)
+    masks = {col: pd.Series(False, index=df.index) for col in df.columns}
+
+    def dup_mask_for(col):
+        series = df[col].astype(str).str.strip().str.lower().replace({"": pd.NA, "nan": pd.NA})
+        return series.duplicated(keep=False) & series.notna()
+
+    if name_col is not None:
+        masks[name_col] = dup_mask_for(name_col)
+    if email_col is not None:
+        masks[email_col] = dup_mask_for(email_col)
+    if phone_col is not None:
+        # For phones, treat only digits for duplicate check
+        series = df[phone_col].astype(str).str.replace(r"\D", "", regex=True)
+        series = series.replace({"": pd.NA, "nan": pd.NA})
+        masks[phone_col] = series.duplicated(keep=False) & series.notna()
+
+    def highlight(col_vals):
+        col = col_vals.name
+        m = masks.get(col, pd.Series(False, index=col_vals.index))
         return ['color: #c1121f; font-weight: 700' if flag else '' for flag in m]
 
     styler = df.style.apply(highlight, axis=0)
     return styler
 # ===== END DUPLICATE HIGHLIGHTING =====
+
 
 def normalize_phone_column(df: pd.DataFrame) -> pd.DataFrame:
     # Find probable phone column(s) and normalize for display only
@@ -505,8 +506,6 @@ display = display[table_cols].rename(columns={"_Name":"Name"})
 csv = filtered.to_csv(index=False).encode("utf-8")
 st.download_button("Export CSV", csv, file_name="contacts_filtered.csv", mime="text/csv")
 
-
-render_kpi_cards(display)
 
 st.dataframe(style_duplicates(normalize_phone_column(display).reset_index(drop=True)), use_container_width=True, height=520)
 
