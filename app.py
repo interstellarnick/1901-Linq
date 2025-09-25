@@ -316,6 +316,41 @@ for _col in ["_Name","Phone Number","Email","Created By","Date","Marketing"]:
 display = display[table_cols].rename(columns={"_Name":"Name"})
 
 # Export + table
+
+# ---- Duplicate highlighting and Unique count ----
+def _normalize_phone(x):
+    s = str(x or "").strip()
+    digits = "".join(ch for ch in s if ch.isdigit())
+    return digits or None
+
+phones_norm = display.get("Phone Number", pd.Series(dtype=object)).apply(_normalize_phone)
+emails_norm = display.get("Email", pd.Series(dtype=object)).astype(str).str.strip().str.lower()
+emails_norm = emails_norm.replace({"": None, "nan": None})
+
+dup_phone_mask = phones_norm.duplicated(keep=False) & phones_norm.notna()
+dup_email_mask = emails_norm.duplicated(keep=False) & emails_norm.notna()
+
+# Unique Contacts (by email if present else phone). Rows with neither are counted individually.
+key_series = emails_norm.copy()
+mask_no_email = key_series.isna()
+key_series[mask_no_email] = phones_norm[mask_no_email]
+key_series = key_series.where(key_series.notna(), "__row__" + display.reset_index().index.astype(str))
+unique_contacts = int(pd.Series(key_series).nunique())
+
+# Show metric
+st.metric("Unique Contacts", unique_contacts)
+
+# Style duplicates in red
+def _style_dups(df):
+    styles = pd.DataFrame("", index=df.index, columns=df.columns)
+    if "Phone Number" in df.columns:
+        styles.loc[dup_phone_mask, "Phone Number"] = "color: red; font-weight: 600"
+    if "Email" in df.columns:
+        styles.loc[dup_email_mask, "Email"] = "color: red; font-weight: 600"
+    return styles
+
+styled = display.style.apply(lambda _: _style_dups(display), axis=None)
 csv = filtered.to_csv(index=False).encode("utf-8")
 st.download_button("Export CSV", csv, file_name="contacts_filtered.csv", mime="text/csv")
-st.dataframe(display.reset_index(drop=True), use_container_width=True, hide_index=True, height=520)
+st.dataframe(styled.hide(axis='index'), use_container_width=True, height=520)
+
