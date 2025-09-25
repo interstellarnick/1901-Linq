@@ -143,6 +143,47 @@ def render_kpi_cards(df: pd.DataFrame):
     with c5: card("Unique Contacts", unique_ct)
     with c6: card("Duplicate Contacts", dup_ct)
 
+
+# ===== DUPLICATE HIGHLIGHTING (Name + Email) =====
+import pandas as pd
+import numpy as np
+
+def _find_col(df, candidates):
+    for c in df.columns:
+        if str(c).strip().lower() in candidates:
+            return c
+    return None
+
+def style_duplicates(df: pd.DataFrame) -> "pd.io.formats.style.Styler":
+    # Identify likely name and email columns
+    name_col = None
+    for c in df.columns:
+        cl = str(c).strip().lower()
+        if cl in {"name", "full name", "contact name"} or ("name" in cl and "company" not in cl):
+            name_col = c
+            break
+    email_col = _find_col(df, {"email", "email address", "e-mail"})
+    # Prepare masks
+    masks = {col: pd.Series(False, index=df.index) for col in df.columns}
+    if name_col is not None:
+        norm = df[name_col].astype(str).str.strip().str.lower().replace({"": np.nan, "nan": np.nan})
+        dup_mask = norm.duplicated(keep=False) & norm.notna()
+        masks[name_col] = dup_mask
+    if email_col is not None:
+        norm = df[email_col].astype(str).str.strip().str.lower().replace({"": np.nan, "nan": np.nan})
+        dup_mask = norm.duplicated(keep=False) & norm.notna()
+        masks[email_col] = dup_mask
+
+    def highlight(cell_vals):
+        # cell_vals is a Series for a column; we use precomputed mask
+        col = cell_vals.name
+        m = masks.get(col, pd.Series(False, index=cell_vals.index))
+        return ['color: #c1121f; font-weight: 700' if flag else '' for flag in m]
+
+    styler = df.style.apply(highlight, axis=0)
+    return styler
+# ===== END DUPLICATE HIGHLIGHTING =====
+
 def normalize_phone_column(df: pd.DataFrame) -> pd.DataFrame:
     # Find probable phone column(s) and normalize for display only
     out = df.copy()
@@ -153,128 +194,6 @@ def normalize_phone_column(df: pd.DataFrame) -> pd.DataFrame:
 # ===== END KPI & PHONE =====
 
 
-# ===== UI EXPORT TOOLBAR (client-side snapshot: PDF/PPTX) =====
-def render_ui_export_toolbar():
-    import streamlit.components.v1 as components
-    components.html(
-        """
-        <div id="export-toolbar">
-          <button id="btn-pdf" title="Download a PDF of the current dashboard">📄 Export PDF</button>
-          <button id="btn-pptx" title="Download a PowerPoint with the dashboard on a slide">📊 Export PPTX</button>
-        </div>
-
-        <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-        <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-
-        <script>
-        async function captureUI() {
-          const el = document.querySelector('section.main') || document.body; // streamlit app root
-          // Ensure full height render
-          const rect = el.getBoundingClientRect();
-          const canvas = await html2canvas(el, {
-            useCORS: true,
-            backgroundColor: '#ffffff',
-            scale: 2, // improve sharpness
-            width: Math.ceil(rect.width),
-            height: Math.ceil(el.scrollHeight),
-            windowWidth: Math.max(document.documentElement.scrollWidth, window.innerWidth),
-            windowHeight: Math.max(document.documentElement.scrollHeight, window.innerHeight),
-            scrollX: 0,
-            scrollY: -window.scrollY
-          });
-          return canvas.toDataURL('image/png');
-        }
-
-        document.addEventListener('DOMContentLoaded', () => {
-          const btnPdf = document.getElementById('btn-pdf');
-          const btnPptx = document.getElementById('btn-pptx');
-
-          btnPdf?.addEventListener('click', async () => {
-            btnPdf.disabled = true;
-            btnPdf.textContent = 'Working…';
-            try {
-              const dataUrl = await captureUI();
-              const { jsPDF } = window.jspdf;
-              const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' }); // 11.7 x 8.3 in
-              const img = new Image();
-              img.onload = () => {
-                const pageW = pdf.internal.pageSize.getWidth();
-                const pageH = pdf.internal.pageSize.getHeight();
-                const ratio = Math.min(pageW / img.width, pageH / img.height);
-                const w = img.width * ratio;
-                const h = img.height * ratio;
-                const x = (pageW - w) / 2;
-                const y = (pageH - h) / 2;
-                pdf.addImage(dataUrl, 'PNG', x, y, w, h);
-                pdf.save('contacts_dashboard.pdf');
-                btnPdf.textContent = '📄 Export PDF';
-                btnPdf.disabled = false;
-              };
-              img.src = dataUrl;
-            } catch (e) {
-              console.error(e);
-              btnPdf.textContent = '📄 Export PDF';
-              btnPdf.disabled = false;
-              alert('Sorry, PDF export failed.');
-            }
-          });
-
-          btnPptx?.addEventListener('click', async () => {
-            btnPptx.disabled = true;
-            btnPptx.textContent = 'Working…';
-            try {
-              const dataUrl = await captureUI();
-              const pptx = new PptxGenJS();
-              // 16:9 slide (13.33 x 7.5 inches)
-              pptx.defineLayout({ name: 'W16H9', width: 13.33, height: 7.5 });
-              pptx.layout = 'W16H9';
-              const slide = pptx.addSlide();
-              slide.addImage({ data: dataUrl, x: 0, y: 0, w: 13.33, h: 7.5 });
-              pptx.writeFile({ fileName: 'contacts_dashboard.pptx' }).then(() => {
-                btnPptx.textContent = '📊 Export PPTX';
-                btnPptx.disabled = false;
-              });
-            } catch (e) {
-              console.error(e);
-              btnPptx.textContent = '📊 Export PPTX';
-              btnPptx.disabled = false;
-              alert('Sorry, PPTX export failed.');
-            }
-          });
-        });
-
-        </script>
-        <style>
-          #export-toolbar {
-            position: sticky;
-            top: 8px;
-            z-index: 999;
-            display: flex;
-            gap: 8px;
-            margin-bottom: 6px;
-          }
-          #export-toolbar button {
-            font: inherit;
-            padding: 8px 12px;
-            border-radius: 10px;
-            border: 1px solid rgba(0,0,0,.12);
-            background: #fff;
-            box-shadow: 0 1px 4px rgba(0,0,0,.08);
-            cursor: pointer;
-          }
-          #export-toolbar button:hover {
-            box-shadow: 0 2px 10px rgba(0,0,0,.12);
-          }
-          #export-toolbar button:disabled {
-            opacity: .6;
-            cursor: progress;
-          }
-        </style>
-        """,
-        height=80
-    )
-# ===== END: UI EXPORT TOOLBAR =====
 
 
 # -----------------------
@@ -586,7 +505,8 @@ display = display[table_cols].rename(columns={"_Name":"Name"})
 csv = filtered.to_csv(index=False).encode("utf-8")
 st.download_button("Export CSV", csv, file_name="contacts_filtered.csv", mime="text/csv")
 
-render_ui_export_toolbar()
+
 render_kpi_cards(display)
 
-st.dataframe(normalize_phone_column(display).reset_index(drop=True), use_container_width=True, hide_index=True, height=520)
+st.dataframe(style_duplicates(normalize_phone_column(display).reset_index(drop=True)), use_container_width=True, height=520)
+
