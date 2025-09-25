@@ -10,6 +10,273 @@ import os
 
 st.set_page_config(page_title="Contacts Dashboard", layout="wide")
 
+# ===== KPI CARDS & PHONE NORMALIZATION =====
+import pandas as pd
+import re
+import streamlit as st
+
+def _normalize_phone_value(val: object) -> str:
+    if val is None:
+        return ""
+    s = str(val).strip()
+    if s.lower() in {"nan", "none"}:
+        return ""
+    # Float-like with zero decimals (e.g., 1234567890.0, 1234567890.000000)
+    m = re.match(r"^(\d+)\.0+$", s)
+    if m:
+        s = m.group(1)
+    # If it's a real float, coerce to int when safe
+    try:
+        f = float(s)
+        if f.is_integer():
+            s = str(int(f))
+    except Exception:
+        pass
+    # Pretty format common US-style 10-digit numbers; leave others as-is
+    digits = re.sub(r"\D", "", s)
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    if len(digits) == 10:
+        return f"({digits[0:3]}) {digits[3:6]}-{digits[6:10]}"
+    return s
+
+def _count_unique_contacts(df: pd.DataFrame) -> int:
+    email_col = None
+    phone_col = None
+    for c in df.columns:
+        cl = str(c).strip().lower()
+        if cl in {"email", "email address", "e-mail"}:
+            email_col = c
+        if cl in {"phone", "phone number", "mobile", "phone #"}:
+            phone_col = c
+    if email_col is not None:
+        col = df[email_col].astype(str).str.strip().str.lower().replace({"": None, "nan": None})
+        uniq = col.dropna().nunique()
+        missing = col.isna().sum()
+        return int(uniq + missing)
+    if phone_col is not None:
+        col = df[phone_col].astype(str).str.strip().replace({"": None, "nan": None})
+        uniq = col.dropna().nunique()
+        missing = col.isna().sum()
+        return int(uniq + missing)
+    return int(len(df))
+
+def _count_duplicate_contacts(df: pd.DataFrame) -> int:
+    # Duplicates counted by email when present, else by phone. Rows with neither are not considered duplicates.
+    email_col = None
+    phone_col = None
+    for c in df.columns:
+        cl = str(c).strip().lower()
+        if cl in {"email", "email address", "e-mail"}:
+            email_col = c
+        if cl in {"phone", "phone number", "mobile", "phone #"}:
+            phone_col = c
+    if email_col is not None:
+        series = df[email_col].astype(str).str.strip().str.lower()
+        mask = series.ne("").fillna(False)
+        counts = series[mask].value_counts()
+        return int((counts[counts > 1].sum() - (counts[counts > 1].count())))
+    if phone_col is not None:
+        series = df[phone_col].astype(str).str.strip()
+        mask = series.ne("").fillna(False)
+        counts = series[mask].value_counts()
+        return int((counts[counts > 1].sum() - (counts[counts > 1].count())))
+    return 0
+
+def _count_marketing(df: pd.DataFrame):
+    # Heuristics to find marketing opt-in/out
+    # Looks for a column containing 'marketing' or 'opt' and interprets values {accepted, declined, yes/no, true/false}
+    col = None
+    for c in df.columns:
+        cl = str(c).lower()
+        if "marketing" in cl or "opt" in cl:
+            col = c
+            break
+    accepted = declined = 0
+    if col is not None:
+        vals = df[col].astype(str).str.strip().str.lower()
+        accepted = int((vals.isin(["accepted", "accept", "yes", "y", "true", "1"])).sum())
+        declined = int((vals.isin(["declined", "decline", "no", "n", "false", "0"])).sum())
+    return accepted, declined
+
+def _count_active_users(df: pd.DataFrame) -> int:
+    # Heuristics for active users (status-like columns)
+    candidates = []
+    for c in df.columns:
+        cl = str(c).lower()
+        if "active" in cl or cl in {"status", "state"}:
+            candidates.append(c)
+    for col in candidates:
+        vals = df[col].astype(str).str.strip().str.lower()
+        return int((vals.isin(["active", "true", "yes", "y", "1"])).sum())
+    return 0
+
+def render_kpi_cards(df: pd.DataFrame):
+    total = int(len(df))
+    accepted, declined = _count_marketing(df)
+    active = _count_active_users(df)
+    unique_ct = _count_unique_contacts(df)
+    dup_ct = max(total - unique_ct, 0)
+
+    def card(label, value):
+        st.markdown(
+            f"""
+            <div style="border:1px solid rgba(0,0,0,.1); border-radius:14px; padding:14px 16px; background:#fff; box-shadow:0 1px 6px rgba(0,0,0,.06);">
+              <div style="font-size:12px; opacity:.75; margin-bottom:6px;">{label}</div>
+              <div style="font-size:28px; font-weight:700;">{value:,}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+    st.markdown("### Overview")
+
+    # Row 1: Total Contacts, Marketing accepted, marketing declined
+    c1,c2,c3 = st.columns(3)
+    with c1: card("Total Contacts", total)
+    with c2: card("Marketing Accepted", accepted)
+    with c3: card("Marketing Declined", declined)
+
+    # Row 2: Active users, unique contacts, duplicate contacts
+    c4,c5,c6 = st.columns(3)
+    with c4: card("Active Users", active)
+    with c5: card("Unique Contacts", unique_ct)
+    with c6: card("Duplicate Contacts", dup_ct)
+
+def normalize_phone_column(df: pd.DataFrame) -> pd.DataFrame:
+    # Find probable phone column(s) and normalize for display only
+    out = df.copy()
+    for c in out.columns:
+        if str(c).strip().lower() in {"phone", "phone number", "mobile", "phone #", "telephone", "tel"}:
+            out[c] = out[c].apply(_normalize_phone_value)
+    return out
+# ===== END KPI & PHONE =====
+
+
+# ===== UI EXPORT TOOLBAR (client-side snapshot: PDF/PPTX) =====
+def render_ui_export_toolbar():
+    import streamlit.components.v1 as components
+    components.html(
+        """
+        <div id="export-toolbar">
+          <button id="btn-pdf" title="Download a PDF of the current dashboard">📄 Export PDF</button>
+          <button id="btn-pptx" title="Download a PowerPoint with the dashboard on a slide">📊 Export PPTX</button>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+
+        <script>
+        async function captureUI() {
+          const el = document.querySelector('section.main') || document.body; // streamlit app root
+          // Ensure full height render
+          const rect = el.getBoundingClientRect();
+          const canvas = await html2canvas(el, {
+            useCORS: true,
+            backgroundColor: '#ffffff',
+            scale: 2, // improve sharpness
+            width: Math.ceil(rect.width),
+            height: Math.ceil(el.scrollHeight),
+            windowWidth: Math.max(document.documentElement.scrollWidth, window.innerWidth),
+            windowHeight: Math.max(document.documentElement.scrollHeight, window.innerHeight),
+            scrollX: 0,
+            scrollY: -window.scrollY
+          });
+          return canvas.toDataURL('image/png');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+          const btnPdf = document.getElementById('btn-pdf');
+          const btnPptx = document.getElementById('btn-pptx');
+
+          btnPdf?.addEventListener('click', async () => {
+            btnPdf.disabled = true;
+            btnPdf.textContent = 'Working…';
+            try {
+              const dataUrl = await captureUI();
+              const { jsPDF } = window.jspdf;
+              const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' }); // 11.7 x 8.3 in
+              const img = new Image();
+              img.onload = () => {
+                const pageW = pdf.internal.pageSize.getWidth();
+                const pageH = pdf.internal.pageSize.getHeight();
+                const ratio = Math.min(pageW / img.width, pageH / img.height);
+                const w = img.width * ratio;
+                const h = img.height * ratio;
+                const x = (pageW - w) / 2;
+                const y = (pageH - h) / 2;
+                pdf.addImage(dataUrl, 'PNG', x, y, w, h);
+                pdf.save('contacts_dashboard.pdf');
+                btnPdf.textContent = '📄 Export PDF';
+                btnPdf.disabled = false;
+              };
+              img.src = dataUrl;
+            } catch (e) {
+              console.error(e);
+              btnPdf.textContent = '📄 Export PDF';
+              btnPdf.disabled = false;
+              alert('Sorry, PDF export failed.');
+            }
+          });
+
+          btnPptx?.addEventListener('click', async () => {
+            btnPptx.disabled = true;
+            btnPptx.textContent = 'Working…';
+            try {
+              const dataUrl = await captureUI();
+              const pptx = new PptxGenJS();
+              // 16:9 slide (13.33 x 7.5 inches)
+              pptx.defineLayout({ name: 'W16H9', width: 13.33, height: 7.5 });
+              pptx.layout = 'W16H9';
+              const slide = pptx.addSlide();
+              slide.addImage({ data: dataUrl, x: 0, y: 0, w: 13.33, h: 7.5 });
+              pptx.writeFile({ fileName: 'contacts_dashboard.pptx' }).then(() => {
+                btnPptx.textContent = '📊 Export PPTX';
+                btnPptx.disabled = false;
+              });
+            } catch (e) {
+              console.error(e);
+              btnPptx.textContent = '📊 Export PPTX';
+              btnPptx.disabled = false;
+              alert('Sorry, PPTX export failed.');
+            }
+          });
+        });
+
+        </script>
+        <style>
+          #export-toolbar {
+            position: sticky;
+            top: 8px;
+            z-index: 999;
+            display: flex;
+            gap: 8px;
+            margin-bottom: 6px;
+          }
+          #export-toolbar button {
+            font: inherit;
+            padding: 8px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(0,0,0,.12);
+            background: #fff;
+            box-shadow: 0 1px 4px rgba(0,0,0,.08);
+            cursor: pointer;
+          }
+          #export-toolbar button:hover {
+            box-shadow: 0 2px 10px rgba(0,0,0,.12);
+          }
+          #export-toolbar button:disabled {
+            opacity: .6;
+            cursor: progress;
+          }
+        </style>
+        """,
+        height=80
+    )
+# ===== END: UI EXPORT TOOLBAR =====
+
+
 # -----------------------
 # Helpers
 # -----------------------
@@ -316,41 +583,10 @@ for _col in ["_Name","Phone Number","Email","Created By","Date","Marketing"]:
 display = display[table_cols].rename(columns={"_Name":"Name"})
 
 # Export + table
-
-# ---- Duplicate highlighting and Unique count ----
-def _normalize_phone(x):
-    s = str(x or "").strip()
-    digits = "".join(ch for ch in s if ch.isdigit())
-    return digits or None
-
-phones_norm = display.get("Phone Number", pd.Series(dtype=object)).apply(_normalize_phone)
-emails_norm = display.get("Email", pd.Series(dtype=object)).astype(str).str.strip().str.lower()
-emails_norm = emails_norm.replace({"": None, "nan": None})
-
-dup_phone_mask = phones_norm.duplicated(keep=False) & phones_norm.notna()
-dup_email_mask = emails_norm.duplicated(keep=False) & emails_norm.notna()
-
-# Unique Contacts (by email if present else phone). Rows with neither are counted individually.
-key_series = emails_norm.copy()
-mask_no_email = key_series.isna()
-key_series[mask_no_email] = phones_norm[mask_no_email]
-key_series = key_series.where(key_series.notna(), "__row__" + display.reset_index().index.astype(str))
-unique_contacts = int(pd.Series(key_series).nunique())
-
-# Show metric
-st.metric("Unique Contacts", unique_contacts)
-
-# Style duplicates in red
-def _style_dups(df):
-    styles = pd.DataFrame("", index=df.index, columns=df.columns)
-    if "Phone Number" in df.columns:
-        styles.loc[dup_phone_mask, "Phone Number"] = "color: red; font-weight: 600"
-    if "Email" in df.columns:
-        styles.loc[dup_email_mask, "Email"] = "color: red; font-weight: 600"
-    return styles
-
-styled = display.style.apply(lambda _: _style_dups(display), axis=None)
 csv = filtered.to_csv(index=False).encode("utf-8")
 st.download_button("Export CSV", csv, file_name="contacts_filtered.csv", mime="text/csv")
-st.dataframe(styled.hide(axis='index'), use_container_width=True, height=520)
 
+render_ui_export_toolbar()
+render_kpi_cards(display)
+
+st.dataframe(normalize_phone_column(display).reset_index(drop=True), use_container_width=True, hide_index=True, height=520)
