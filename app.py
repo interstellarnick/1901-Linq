@@ -356,6 +356,14 @@ with colA:
 with colB:
     q = st.text_input("🔎 Search…", key="q", placeholder="Search name, email, phone, company…")
 
+# ---- Hard cutoff: hide all rows before July 1, 2025 ----
+from datetime import date
+CUTOFF_DATE = date(2025, 7, 1)
+
+# Drop rows that have a valid date earlier than the cutoff
+df = df[~(df["_Date"].notna() & (df["_Date"] < CUTOFF_DATE))].copy()
+# ---------------------------------------------------------
+
 # -----------------------
 # Filters (horizontal)
 # -----------------------
@@ -438,23 +446,44 @@ CHART_HEIGHT = 360
 # KPI row
 # -----------------------
 total_contacts = len(filtered)
+dup_ct = _count_duplicate_contacts(filtered)       # uses your email/phone duplicate logic
+unique_contacts = max(total_contacts - dup_ct, 0)  # guard against negatives
+
 marketing_accepted = int((filtered["_Marketing"] == "Accepted").sum())
 marketing_declined = int((filtered["_Marketing"] == "Declined").sum())
 active_users = filtered["_Created"].nunique()
 
-k1, k2, k3, k4 = st.columns(4)
+k1, k2, k3, k4, k5 = st.columns(5)
 with k1:
-    st.markdown(f'<div class="kpi-card"><div class="kpi-label">Total Contacts</div><div class="kpi-value">{total_contacts:,}</div></div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="kpi-card"><div class="kpi-label">Total Contacts</div>'
+        f'<div class="kpi-value">{total_contacts:,}</div></div>',
+        unsafe_allow_html=True
+    )
 with k2:
-    st.markdown(f'<div class="kpi-card"><div class="kpi-label">Marketing Accepted</div><div class="kpi-value">{marketing_accepted:,}</div></div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="kpi-card"><div class="kpi-label">Unique Contacts</div>'
+        f'<div class="kpi-value">{unique_contacts:,}</div></div>',
+        unsafe_allow_html=True
+    )
 with k3:
-    st.markdown(f'<div class="kpi-card"><div class="kpi-label">Marketing Declined</div><div class="kpi-value">{marketing_declined:,}</div></div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="kpi-card"><div class="kpi-label">Marketing Accepted</div>'
+        f'<div class="kpi-value">{marketing_accepted:,}</div></div>',
+        unsafe_allow_html=True
+    )
 with k4:
-    st.markdown(f'<div class="kpi-card"><div class="kpi-label">Active Users</div><div class="kpi-value">{active_users:,}</div></div>', unsafe_allow_html=True)
-
-st.write("")
-st.caption(f"Using **{period_anchor}** as {anchor_date:%b %d, %Y}.")
-
+    st.markdown(
+        f'<div class="kpi-card"><div class="kpi-label">Marketing Declined</div>'
+        f'<div class="kpi-value">{marketing_declined:,}</div></div>',
+        unsafe_allow_html=True
+    )
+with k5:
+    st.markdown(
+        f'<div class="kpi-card"><div class="kpi-label">Active Users</div>'
+        f'<div class="kpi-value">{active_users:,}</div></div>',
+        unsafe_allow_html=True
+    )
 
 # -----------------------
 # Charts row
