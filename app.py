@@ -61,6 +61,25 @@ def _count_unique_contacts(df: pd.DataFrame) -> int:
         return int(uniq + missing)
     return int(len(df))
 
+def build_contact_key(df: pd.DataFrame) -> pd.Series:
+    """
+    Prefer email (lowercased), else digits-only phone, else a stable fallback.
+    This lets us count 'unique contacts' across rows.
+    """
+    email = (
+        df.get("Email", pd.Series(index=df.index, dtype=object))
+          .astype(str).str.strip().str.lower()
+          .replace({"": pd.NA, "nan": pd.NA})
+    )
+    phone = (
+        df.get("Phone Number", pd.Series(index=df.index, dtype=object))
+          .astype(str).str.replace(r"\D", "", regex=True).str.strip()
+          .replace({"": pd.NA, "nan": pd.NA})
+    )
+    fallback = pd.Series([f"missing-{i}" for i in df.index], index=df.index)
+    return email.combine_first(phone).combine_first(fallback)
+
+
 def _count_duplicate_contacts(df: pd.DataFrame) -> int:
     # Duplicates counted by email when present, else by phone. Rows with neither are not considered duplicates.
     email_col = None
@@ -490,19 +509,30 @@ with k5:
 # -----------------------
 c_left, c_right = st.columns(2)
 
-# Pie: Contacts by User (with counts in labels)
+# Pie: Unique Contacts by User (with counts in labels)
 with c_left:
-    counts = filtered["_Created"].fillna("Unknown").astype(str).value_counts().reset_index()
-    counts.columns = ["Created By Page", "Count"]
-    counts["Label"] = counts["Created By Page"] + " (" + counts["Count"].astype(str) + ")"
+    keys = build_contact_key(filtered)
+    by_user = (
+        filtered.assign(_Key=keys)
+        .groupby("_Created")["_Key"]
+        .nunique()  # <-- unique contacts, not total rows
+        .reset_index()
+        .sort_values("_Key", ascending=False)
+    )
+    by_user.columns = ["Created By Page", "Unique Contacts"]
+    by_user["Label"] = by_user["Created By Page"].astype(str) + " (" + by_user["Unique Contacts"].astype(str) + ")"
+
     fig_pie = px.pie(
-        counts,
-        values="Count",
+        by_user,
+        values="Unique Contacts",
         names="Label",
         hole=0.35,
-        title="Contacts by User",
+        title="Unique Contacts by User",
     )
-    fig_pie.update_traces(textinfo="label+value+percent", hovertemplate="%{label}<br>Count: %{value} (%{percent})<extra></extra>")
+    fig_pie.update_traces(
+        textinfo="label+value+percent",
+        hovertemplate="%{label}<br>Unique: %{value} (%{percent})<extra></extra>"
+    )
     fig_pie.update_layout(height=CHART_HEIGHT)
     st.plotly_chart(fig_pie, use_container_width=True)
 
