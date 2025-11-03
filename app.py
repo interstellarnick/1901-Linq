@@ -287,12 +287,12 @@ with st.expander("➕ Upload a different CSV (optional)", expanded=False):
 
 # Column mapping
 COL_TIME = next((c for c in df.columns if c.lower() == "time" or "date" in c.lower()), None)
-COL_CREATED = next((c for c in df.columns if c.lower().strip() == "created by user"), None) or \
+COL_CREATED = next((c for c in df.columns if c.lower().strip() == "created by page"), None) or \
               next((c for c in df.columns if "created by" in c.lower()), None)
 COL_ACCEPT = next((c for c in df.columns if "accept marketing" in c.lower()), None)
 
 if COL_TIME is None or COL_CREATED is None:
-    st.error("Could not infer required columns. Expected 'Time' (or any date-like column) and 'Created By User'.")
+    st.error("Could not infer required columns. Expected 'Time' (or any date-like column) and 'Created By Page'.")
     st.stop()
 
 # Prepare fields
@@ -464,8 +464,8 @@ c_left, c_right = st.columns(2)
 # Pie: Contacts by User (with counts in labels)
 with c_left:
     counts = filtered["_Created"].fillna("Unknown").astype(str).value_counts().reset_index()
-    counts.columns = ["Created By User", "Count"]
-    counts["Label"] = counts["Created By User"] + " (" + counts["Count"].astype(str) + ")"
+    counts.columns = ["Created By Page", "Count"]
+    counts["Label"] = counts["Created By Page"] + " (" + counts["Count"].astype(str) + ")"
     fig_pie = px.pie(
         counts,
         values="Count",
